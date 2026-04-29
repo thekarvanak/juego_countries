@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Aplicación web para explorar información de países del mundo usando REST Countries API">
+    <title>REST Countries Explorer</title>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="css/wordle.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h1 class="header__title">REST Countries Explorer</h1>
+                    <p class="header__subtitle">Explora información de países de todo el mundo</p>
+                </div>
+                <button id="btn-wordle" class="button button--primary" style="background-color: var(--color-primary);">
+                    Jugar Wordle de Países
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <!-- Filters Section -->
+            <section class="filters" aria-label="Filtros de búsqueda">
+                <div class="filters__search">
+                    <label for="searchInput" class="visually-hidden">Buscar país</label>
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        class="input input--search" 
+                        placeholder="Buscar país por nombre..."
+                        aria-describedby="searchHelp"
+                    >
+                    <span id="searchHelp" class="visually-hidden">Escribe el nombre de un país para buscarlo</span>
+                </div>
+
+                <div class="filters__group">
+                    <div class="filter">
+                        <label for="regionFilter" class="filter__label">Región:</label>
+                        <select id="regionFilter" class="select">
+                            <option value="">Todas las regiones</option>
+                            <option value="Africa">África</option>
+                            <option value="Americas">América</option>
+                            <option value="Asia">Asia</option>
+                            <option value="Europe">Europa</option>
+                            <option value="Oceania">Oceanía</option>
+                        </select>
+                    </div>
+
+                    <div class="filter">
+                        <label for="sortFilter" class="filter__label">Ordenar:</label>
+                        <select id="sortFilter" class="select">
+                            <option value="name">Nombre (A-Z)</option>
+                            <option value="population">Población (mayor a menor)</option>
+                            <option value="area">Área (mayor a menor)</option>
+                        </select>
+                    </div>
+
+                    <button id="resetButton" class="button button--secondary">
+                        Restablecer filtros
+                    </button>
+                </div>
+            </section>
+
+            <!-- Loading State -->
+            <div id="loadingIndicator" class="loading" role="status" aria-live="polite">
+                <div class="loading__spinner"></div>
+                <p class="loading__text">Cargando países...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message" role="alert" aria-live="assertive" style="display: none;">
+                <p class="error-message__text"></p>
+                <button id="retryButton" class="button button--primary">Reintentar</button>
+            </div>
+
+            <!-- Results Info -->
+            <div id="resultsInfo" class="results-info" aria-live="polite" style="display: none;">
+                <p id="resultsCount" class="results-info__text"></p>
+            </div>
+
+            <!-- Countries Grid -->
+            <section id="countriesGrid" class="countries-grid" aria-label="Listado de países">
+                <!-- Las tarjetas de países se insertan aquí dinámicamente -->
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal -->
+    <div id="countryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" style="display: none;">
+        <div class="modal__overlay"></div>
+        <div class="modal__content">
+            <button id="modalClose" class="modal__close" aria-label="Cerrar modal">
+                <span aria-hidden="true">&times;</span>
+            </button>
+            <div id="modalBody" class="modal__body">
+                <!-- El contenido del modal se inserta aquí dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p class="footer__text">
+                Datos proporcionados por 
+                <a href="https://restcountries.com" target="_blank" rel="noopener noreferrer" class="footer__link">
+                    REST Countries API
+                </a>
+            </p>
+        </div>
+    </footer>
+
+    <!-- JavaScript Modules -->
+    <script src="js/api.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/filters.js"></script>
+    <script src="js/modal.js"></script>
+    <script src="js/main.js"></script>
+    <script type="module" src="js/wordle-ui.js"></script>
+</body>
+</html>
