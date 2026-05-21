@@ -41,10 +41,25 @@ async function initApp() {
         // Inicializar modal
         initModal();
 
-        // Configurar event listeners
+        // Configurar event listeners de la app principal
         setupEventListeners();
 
-        // Cargar datos iniciales
+        // Configurar event listeners de autenticación
+        setupAuthEventListeners();
+
+        // Verificar sesión activa con el servidor (NUEVO: await async init)
+        const currentUser = await window.Auth.init();
+        if (!currentUser) {
+            // Sin sesión: mostrar pantalla de login (datos se cargan en paralelo)
+            showLoginOverlay();
+        } else {
+            // Sesión activa: ocultar overlay y actualizar barra de usuario
+            hideLoginOverlay();
+            await updateUserInfoBar(currentUser.nickname);
+            window.Logger?.info(currentUser.nickname, 'APP_INIT', 'Sesión activa detectada al iniciar la app', 'OK');
+        }
+
+        // Cargar datos de países (funciona en paralelo con el login si aplica)
         await loadInitialData();
 
     } catch (error) {
@@ -262,6 +277,199 @@ function handleError(error) {
         countriesGrid.innerHTML = '';
     }
 }
+
+// ─── Autenticación ────────────────────────────────────────────────────────
+
+/**
+ * Muestra el overlay de login.
+ */
+function showLoginOverlay() {
+    const overlay = document.getElementById('login-overlay');
+    if (overlay) {
+        overlay.classList.remove('login-overlay--exit');
+        overlay.style.display = 'flex';
+    }
+}
+
+/**
+ * Oculta el overlay de login con animación de salida.
+ */
+function hideLoginOverlay() {
+    const overlay = document.getElementById('login-overlay');
+    if (!overlay || overlay.style.display === 'none') return;
+
+    overlay.classList.add('login-overlay--exit');
+    // Esperar a que termine la animación antes de ocultar
+    overlay.addEventListener('animationend', () => {
+        overlay.style.display = 'none';
+        overlay.classList.remove('login-overlay--exit');
+    }, { once: true });
+}
+
+/**
+ * Actualiza la barra de usuario en el header con el nickname y puntaje.
+ * @param {string|null} nickname - null para ocultar la barra
+ */
+async function updateUserInfoBar(nickname) {
+    const userInfo     = document.getElementById('user-info');
+    const nickDisplay  = document.getElementById('user-nickname-display');
+    const scoreDisplay = document.getElementById('user-score-display');
+
+    if (!nickname) {
+        if (userInfo) userInfo.style.display = 'none';
+        return;
+    }
+
+    if (userInfo)    userInfo.style.display  = 'flex';
+    if (nickDisplay) nickDisplay.textContent = nickname;
+
+    // Mostrar puntaje acumulado (NUEVO: await — getScore ahora es async)
+    const score = await window.Score?.getScore() ?? 0;
+    if (scoreDisplay) scoreDisplay.textContent = `⭐ ${score} pts`;
+}
+
+/**
+ * Configura los event listeners del sistema de autenticación.
+ */
+function setupAuthEventListeners() {
+    // Formulario de login
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLoginSubmit);
+    }
+
+    // Botón de cerrar sesión
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+
+    // Botón de registrarse
+    const registerBtn = document.getElementById('register-btn');
+    if (registerBtn) {
+        registerBtn.addEventListener('click', handleRegister);
+    }
+
+    // Botón de cancelar registro
+    const registerCancelBtn = document.getElementById('register-cancel-btn');
+    if (registerCancelBtn) {
+        registerCancelBtn.addEventListener('click', hideRegisterPrompt);
+    }
+}
+
+/**
+ * Maneja el envío del formulario de login.
+ * @param {Event} e
+ */
+async function handleLoginSubmit(e) {
+    e.preventDefault();
+    const input    = document.getElementById('nickname-input');
+    const nickname = (input?.value || '').trim();
+
+    hideLoginError();
+    hideRegisterPrompt();
+
+    if (!nickname) {
+        showLoginError('Por favor ingresa un nickname.');
+        return;
+    }
+
+    // Deshabilitar botón mientras se procesa la petición
+    const submitBtn = document.querySelector('.login-form__submit');
+    if (submitBtn) submitBtn.disabled = true;
+
+    // NUEVO: await — login ahora es async (llama al servidor)
+    const result = await window.Auth.login(nickname);
+
+    if (submitBtn) submitBtn.disabled = false;
+
+    if (result.ok) {
+        const nick = result.user.nickname;
+        hideLoginOverlay();
+        await updateUserInfoBar(nick);
+        if (result.isNew) {
+            window.Logger?.info(nick, 'LOGIN_NUEVO_USUARIO', 'Cuenta creada automáticamente', 'OK');
+        }
+    } else if (result.reason === 'invalid_format') {
+        showLoginError('Formato inválido: usa letras minúsculas, números o _ (3–20 caracteres).');
+    } else if (result.reason === 'network_error') {
+        showLoginError(result.message || 'Error de conexión con el servidor.');
+    } else {
+        showLoginError('Error al iniciar sesión. Inténtalo de nuevo.');
+    }
+}
+
+/**
+ * Maneja el registro de un nuevo nickname.
+ */
+// handleRegister ya no aplica: el backend auto-registra si el nickname no existe.
+// El botón #register-btn dispara handleLoginSubmit directamente.
+function handleRegister() {
+    handleLoginSubmit(new Event('submit'));
+}
+
+/**
+ * Maneja el cierre de sesión.
+ */
+async function handleLogout() {
+    const user = window.Auth?.getCurrentUser();
+    if (user) {
+        window.Logger?.warn(user.nickname, 'LOGOUT', 'Cierre de sesión solicitado por el usuario', 'OK');
+    }
+    // NUEVO: await — logout ahora es async (llama al servidor)
+    await window.Auth?.logout();
+    updateUserInfoBar(null);
+    // Limpiar campo de nickname para la próxima sesión
+    const input = document.getElementById('nickname-input');
+    if (input) input.value = '';
+    hideRegisterPrompt();
+    hideLoginError();
+    showLoginOverlay();
+}
+
+/**
+ * Muestra un mensaje de error en el formulario de login.
+ * @param {string} msg
+ */
+function showLoginError(msg) {
+    const errorEl = document.getElementById('login-error-msg');
+    if (errorEl) {
+        errorEl.textContent = msg;
+        errorEl.style.display = 'block';
+    }
+}
+
+/**
+ * Oculta el mensaje de error del formulario de login.
+ */
+function hideLoginError() {
+    const errorEl = document.getElementById('login-error-msg');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+    }
+}
+
+/**
+ * Muestra el prompt de registro con el nickname ingresado.
+ * @param {string} nickname
+ */
+function showRegisterPrompt(nickname) {
+    const prompt  = document.getElementById('register-prompt');
+    const display = document.getElementById('register-nickname-display');
+    if (display) display.textContent = nickname;
+    if (prompt)  prompt.style.display = 'block';
+}
+
+/**
+ * Oculta el prompt de registro.
+ */
+function hideRegisterPrompt() {
+    const prompt = document.getElementById('register-prompt');
+    if (prompt) prompt.style.display = 'none';
+}
+
+// ─── Estadísticas ─────────────────────────────────────────────────────────
 
 /**
  * Obtiene estadísticas de los países cargados

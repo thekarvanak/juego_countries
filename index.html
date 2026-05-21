@@ -11,6 +11,22 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="css/wordle.css">
+    <link rel="stylesheet" href="css/auth.css">
+
+    <!-- Prevenir destello del overlay de login si ya hay sesión activa -->
+    <script>
+        try {
+            if (document.cookie.split(';').some(function(c) {
+                return c.trim().startsWith('rce_has_session=');
+            })) {
+                document.documentElement.dataset.hasSession = '1';
+            }
+        } catch (e) {}
+    </script>
+    <style>
+        /* Ocultar el overlay inmediatamente si la sesión ya existe */
+        html[data-has-session="1"] #login-overlay { display: none !important; }
+    </style>
 </head>
 <body>
     <!-- Header -->
@@ -21,9 +37,17 @@
                     <h1 class="header__title">REST Countries Explorer</h1>
                     <p class="header__subtitle">Explora información de países de todo el mundo</p>
                 </div>
-                <button id="btn-wordle" class="button button--primary" style="background-color: var(--color-primary);">
-                    Jugar Wordle de Países
-                </button>
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <!-- Barra de usuario (visible cuando hay sesión activa) -->
+                    <div id="user-info" class="user-info" style="display: none;">
+                        <span id="user-welcome" class="user-info__welcome">Hola, <strong id="user-nickname-display"></strong></span>
+                        <span id="user-score-display" class="user-info__score">⭐ 0 pts</span>
+                        <button id="logout-btn" class="user-info__logout">Cerrar sesión</button>
+                    </div>
+                    <button id="btn-wordle" class="button button--primary" style="background-color: var(--color-primary);">
+                        Jugar Wordle de Países
+                    </button>
+                </div>
             </div>
         </div>
     </header>
@@ -105,7 +129,7 @@
                 <span aria-hidden="true">&times;</span>
             </button>
             <div id="modalBody" class="modal__body">
-                <!-- El contenido del modal se inserta aquí dinámicamente -->
+
             </div>
         </div>
     </div>
@@ -122,7 +146,53 @@
         </div>
     </footer>
 
+    <!-- Overlay de Login -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-card">
+            <span class="login-card__logo">🌍</span>
+            <h1 class="login-card__title">REST Countries Explorer</h1>
+            <p class="login-card__subtitle">Ingresa tu nickname para continuar</p>
+
+            <form id="login-form" class="login-form" novalidate>
+                <div class="login-form__group">
+                    <label for="nickname-input" class="login-form__label">Nickname</label>
+                    <input
+                        type="text"
+                        id="nickname-input"
+                        class="login-form__input"
+                        placeholder="Ej: jugador123"
+                        maxlength="20"
+                        autocomplete="off"
+                        spellcheck="false"
+                        aria-describedby="nickname-hint login-error-msg"
+                    >
+                    <span id="nickname-hint" class="login-form__hint">
+                        Solo letras, números y guión bajo (3–20 caracteres)
+                    </span>
+                    <span id="login-error-msg" class="login-form__error" role="alert" style="display: none;"></span>
+                </div>
+                <button type="submit" class="login-form__submit">Entrar</button>
+            </form>
+
+            <!-- Prompt de registro (se muestra cuando el nickname no existe) -->
+            <div id="register-prompt" class="login-register" style="display: none;" role="region" aria-live="polite">
+                <p class="login-register__text">
+                    El nickname <strong id="register-nickname-display"></strong> no está registrado.
+                </p>
+                <p class="login-register__sub">¿Deseas crear una cuenta con este nickname?</p>
+                <div class="login-register__actions">
+                    <button id="register-btn" class="login-register__btn">Registrarme</button>
+                    <button id="register-cancel-btn" class="login-register__cancel">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript Modules -->
+    <!-- Módulos de soporte: autenticación, logs y puntuación -->
+    <script src="js/auth.js"></script>
+    <script src="js/logger.js"></script>
+    <script src="js/score.js"></script>
     <script src="js/api.js"></script>
     <script src="js/render.js"></script>
     <script src="js/filters.js"></script>

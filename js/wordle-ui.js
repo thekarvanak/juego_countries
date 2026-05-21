@@ -25,6 +25,10 @@ let messageArea = null;
 let loadingArea = null;
 let gameArea = null;
 let configArea = null;
+let leaderboardArea = null; // Panel del leaderboard (nuevo)
+
+/** Última vista activa antes de abrir el leaderboard ('config' | 'game') */
+let previousView = 'config';
 
 // Layout del teclado español (3 filas)
 const KEYBOARD_LAYOUT = [
@@ -55,6 +59,9 @@ export async function initWordle() {
 
         // Mostrar pantalla de configuración
         showConfig();
+
+        // Actualizar el panel de puntaje si hay usuario autenticado
+        updateWordleScoreDisplay();
 
     } catch (error) {
         console.error('Error al inicializar Wordle:', error);
@@ -94,8 +101,34 @@ function createModal() {
     closeBtn.setAttribute('aria-label', 'Cerrar juego');
     closeBtn.addEventListener('click', closeModal);
 
-    header.appendChild(title);
-    header.appendChild(closeBtn);
+    // Panel izquierdo del header (título)
+    const headerLeft = document.createElement('div');
+    headerLeft.className = 'wordle-header__left';
+    headerLeft.appendChild(title);
+
+    // Puntaje del usuario autenticado (visible solo si hay sesión)
+    const scoreDisplay = document.createElement('div');
+    scoreDisplay.id = 'wordle-score-display';
+    scoreDisplay.className = 'wordle-score-display';
+    scoreDisplay.style.display = 'none';
+
+    // Botón para abrir el leaderboard
+    const leaderboardBtn = document.createElement('button');
+    leaderboardBtn.className = 'wordle-header__btn';
+    leaderboardBtn.id = 'wordle-leaderboard-btn';
+    leaderboardBtn.innerHTML = '🏆';
+    leaderboardBtn.setAttribute('aria-label', 'Ver tabla de líderes');
+    leaderboardBtn.addEventListener('click', showLeaderboard);
+
+    // Panel derecho del header (puntaje + leaderboard + cerrar)
+    const headerRight = document.createElement('div');
+    headerRight.className = 'wordle-header__right';
+    headerRight.appendChild(scoreDisplay);
+    headerRight.appendChild(leaderboardBtn);
+    headerRight.appendChild(closeBtn);
+
+    header.appendChild(headerLeft);
+    header.appendChild(headerRight);
 
     // Loading area
     loadingArea = document.createElement('div');
@@ -109,6 +142,12 @@ function createModal() {
     configArea = document.createElement('div');
     configArea.className = 'wordle-config';
     configArea.style.display = 'none';
+
+    // Leaderboard area (nuevo)
+    leaderboardArea = document.createElement('div');
+    leaderboardArea.className = 'wordle-leaderboard';
+    leaderboardArea.id = 'wordle-leaderboard-area';
+    leaderboardArea.style.display = 'none';
 
     // Game area
     gameArea = document.createElement('div');
@@ -136,6 +175,7 @@ function createModal() {
     content.appendChild(header);
     content.appendChild(loadingArea);
     content.appendChild(configArea);
+    content.appendChild(leaderboardArea);
     content.appendChild(gameArea);
 
     // Ensamblar modal
@@ -192,6 +232,7 @@ function showConfig() {
 
     configArea.style.display = 'block';
     gameArea.style.display = 'none';
+    if (leaderboardArea) leaderboardArea.style.display = 'none';
 
     // Event listeners para botones de longitud fija
     configArea.querySelectorAll('.wordle-config__btn').forEach(btn => {
@@ -246,10 +287,30 @@ async function startNewGame() {
 
         // Ocultar config, mostrar juego
         configArea.style.display = 'none';
+        leaderboardArea.style.display = 'none';
         gameArea.style.display = 'flex';
         
         // Ajustar ancho dinámico del modal
         adjustModalWidth();
+
+        // Notificar al servidor del inicio de partida (no-bloqueante)
+        fetch('/api/game/start', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ wordLength: currentCountry.palabra.length })
+        }).catch(() => {});
+
+        // Registrar inicio de partida y actualizar display de puntaje
+        const user = window.Auth?.getCurrentUser();
+        if (user) {
+            window.Logger?.info(
+                user.nickname,
+                'GAME_START',
+                `Partida iniciada. País de ${game.longitudPalabra} letras`,
+                'OK'
+            );
+            updateWordleScoreDisplay();
+        }
 
     } catch (error) {
         console.error('Error al iniciar nuevo juego:', error);
@@ -383,6 +444,13 @@ async function handleSubmit() {
         // Actualizar estado del teclado
         updateKeyboard();
 
+        // Notificar intento al servidor (no-bloqueante)
+        fetch('/api/game/attempt', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ attempt: guess })
+        }).catch(() => {});
+
         // Verificar si terminó
         if (game.terminado) {
             setTimeout(() => showGameOver(), 500);
@@ -483,9 +551,64 @@ function updateKeyboard() {
 }
 
 /**
- * Muestra el mensaje final del juego
+ * Muestra el mensaje final del juego, registra el resultado en el log
+ * y actualiza el puntaje del usuario autenticado.
  */
 function showGameOver() {
+    const attempts    = 6 - game.intentosRestantes;
+    const currentUser = window.Auth?.getCurrentUser();
+
+    // ── Registrar resultado de la partida y actualizar puntaje ──────────────
+    // Se lanza de forma asíncrona sin bloquear la UI
+    if (currentUser) {
+        (async () => {
+            const scoreResult = await window.Score?.recordGameResult(
+                currentUser.nickname,
+                game.gano,
+                attempts,
+                game.longitudPalabra,
+                currentCountry.palabra
+            );
+
+            if (scoreResult) {
+                window.Logger?.info(
+                    currentUser.nickname,
+                    'GAME_END',
+                    `${game.gano ? 'Victoria' : 'Derrota'} en ${attempts} intento(s). País: ${currentCountry.nombreReal}`,
+                    `Puntos: ${scoreResult.delta >= 0 ? '+' : ''}${scoreResult.delta} | Total: ${scoreResult.newScore}`
+                );
+                await updateWordleScoreDisplay();
+                const headerScore = document.getElementById('user-score-display');
+                if (headerScore) headerScore.textContent = `⭐ ${scoreResult.newScore} pts`;
+
+                // Actualizar los bloques de puntaje en el HTML ya renderizado
+                const deltaEl = document.querySelector('.wordle-score-earned__delta');
+                const totalEl = document.querySelector('.wordle-score-earned__total');
+                if (deltaEl) deltaEl.textContent = scoreResult.delta > 0 ? `+${scoreResult.delta} pts` : 'Sin puntos';
+                if (totalEl) totalEl.textContent = `Total acumulado: ${scoreResult.newScore} pts`;
+
+                const earnedDiv = document.querySelector('.wordle-score-earned');
+                if (earnedDiv) {
+                    earnedDiv.classList.toggle('wordle-score-earned--positive', scoreResult.delta > 0);
+                    earnedDiv.classList.toggle('wordle-score-earned--zero', scoreResult.delta === 0);
+                }
+            }
+        })();
+    }
+
+    // ── Construir bloque de puntaje ganado ───────────────────────────────────
+    const scoreHtml = (scoreResult && currentUser) ? `
+        <div class="wordle-result__score-info">
+            <div class="wordle-score-earned ${scoreResult.delta > 0 ? 'wordle-score-earned--positive' : 'wordle-score-earned--zero'}">
+                <span class="wordle-score-earned__delta">
+                    ${scoreResult.delta > 0 ? '+' + scoreResult.delta + ' pts' : 'Sin puntos'}
+                </span>
+                <span class="wordle-score-earned__total">Total acumulado: ${scoreResult.newScore} pts</span>
+            </div>
+        </div>
+    ` : '';
+
+    // ── Construir pantalla de resultado ──────────────────────────────────────
     const container = document.createElement('div');
     container.className = 'wordle-result';
 
@@ -493,11 +616,12 @@ function showGameOver() {
         container.innerHTML = `
             <div class="wordle-result__content">
                 <h3 class="wordle-result__title">¡Felicidades! 🎉</h3>
-                <p class="wordle-result__text">Has adivinado el país en ${6 - game.intentosRestantes} intentos</p>
+                <p class="wordle-result__text">Has adivinado el país en ${attempts} intentos</p>
                 <div class="wordle-result__country">
                     <img src="${currentCountry.bandera}" alt="Bandera de ${currentCountry.nombreReal}" class="wordle-result__flag">
                     <p class="wordle-result__name">${currentCountry.nombreReal}</p>
                 </div>
+                ${scoreHtml}
                 <button class="button button--primary wordle-result__button" id="wordle-play-again">
                     Jugar de nuevo
                 </button>
@@ -512,6 +636,7 @@ function showGameOver() {
                     <img src="${currentCountry.bandera}" alt="Bandera de ${currentCountry.nombreReal}" class="wordle-result__flag">
                     <p class="wordle-result__name">${currentCountry.nombreReal}</p>
                 </div>
+                ${scoreHtml}
                 <button class="button button--primary wordle-result__button" id="wordle-play-again">
                     Jugar de nuevo
                 </button>
@@ -522,7 +647,7 @@ function showGameOver() {
     messageArea.innerHTML = '';
     messageArea.appendChild(container);
 
-    // Event listener para jugar de nuevo
+    // Volver a la pantalla de configuración al hacer clic en "Jugar de nuevo"
     document.getElementById('wordle-play-again').addEventListener('click', () => {
         showConfig();
     });
@@ -629,5 +754,95 @@ function closeModal() {
     document.body.style.overflow = '';
 }
 
-// Exponer initWordle globalmente para que main.js pueda acceder
+// ─── Puntaje y Leaderboard ────────────────────────────────────────────────────
+
+/**
+ * Actualiza el panel de puntaje en el header del modal Wordle.
+ * Muestra el nickname y el puntaje acumulado del usuario autenticado.
+ */
+async function updateWordleScoreDisplay() {
+    const scoreDisplay = document.getElementById('wordle-score-display');
+    if (!scoreDisplay) return;
+
+    const user = window.Auth?.getCurrentUser();
+    if (!user) {
+        scoreDisplay.style.display = 'none';
+        return;
+    }
+
+    // NUEVO: await — getScore ahora es async
+    const score = await window.Score?.getScore() ?? 0;
+    scoreDisplay.style.display = 'flex';
+    scoreDisplay.innerHTML = `
+        <span class="wordle-score-display__nickname">${user.nickname}</span>
+        <span class="wordle-score-display__points">⭐ ${score}</span>
+    `;
+}
+
+/**
+ * Muestra el panel de leaderboard dentro del modal Wordle.
+ * Guarda la vista activa para poder restaurarla al cerrar.
+ */
+async function showLeaderboard() {
+    // Guardar qué vista estaba activa para restaurarla después
+    previousView = configArea.style.display !== 'none' ? 'config' : 'game';
+
+    // Ocultar otras vistas
+    configArea.style.display    = 'none';
+    gameArea.style.display      = 'none';
+    loadingArea.style.display   = 'none';
+
+    // Estado de carga antes de la llamada al servidor
+    leaderboardArea.innerHTML = '<div class="wordle-leaderboard__content"><p style="text-align:center;padding:2rem">Cargando...</p></div>';
+    leaderboardArea.style.display = 'block';
+
+    // NUEVO: await — getLeaderboard ahora es async
+    const players     = await window.Score?.getLeaderboard() ?? [];
+    const currentUser = window.Auth?.getCurrentUser();
+
+    const rowsHtml = players.length === 0
+        ? '<p class="wordle-leaderboard__empty">Aún no hay puntuaciones registradas. ¡Juega y sé el primero!</p>'
+        : `<div class="wordle-leaderboard__list">
+            ${players.slice(0, 20).map((p, i) => `
+                <div class="wordle-leaderboard__item ${p.nickname === currentUser?.nickname ? 'wordle-leaderboard__item--current' : ''}">
+                    <span class="wordle-leaderboard__rank">${i + 1}</span>
+                    <span class="wordle-leaderboard__nickname">
+                        ${p.nickname}${p.nickname === currentUser?.nickname ? ' <em style="opacity:.6;font-style:normal;">(tú)</em>' : ''}
+                    </span>
+                    <span class="wordle-leaderboard__score">⭐ ${p.score}</span>
+                    <span class="wordle-leaderboard__games">${p.partidas_ganadas}/${p.partidas_jugadas} ganados</span>
+                </div>
+            `).join('')}
+        </div>`;
+
+    leaderboardArea.innerHTML = `
+        <div class="wordle-leaderboard__content">
+            <h3 class="wordle-leaderboard__title">🏆 Tabla de Líderes</h3>
+            ${rowsHtml}
+            <div class="wordle-leaderboard__actions">
+                <button class="button button--secondary" id="close-leaderboard">← Volver</button>
+                <button class="wordle-download-logs__btn" id="download-logs-btn">📥 Descargar logs</button>
+            </div>
+        </div>
+    `;
+
+    leaderboardArea.style.display = 'block';
+
+    // Botón: volver a la vista anterior
+    document.getElementById('close-leaderboard')?.addEventListener('click', () => {
+        leaderboardArea.style.display = 'none';
+        if (previousView === 'game') {
+            gameArea.style.display = 'flex';
+        } else {
+            showConfig();
+        }
+    });
+
+    // Botón: descargar el archivo de log
+    document.getElementById('download-logs-btn')?.addEventListener('click', () => {
+        window.Logger?.downloadLogs();
+    });
+}
+
+// ─── Exponer initWordle globalmente para que main.js pueda acceder ────────────
 window.initWordle = initWordle;
